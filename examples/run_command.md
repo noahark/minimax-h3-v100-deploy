@@ -1,5 +1,26 @@
 # MiniMax-H3 on V100 — Run command & prompt
 
+## Reproduce the exact README demo (one command)
+
+The README demo video (surf cat, 864×480×56) is produced by
+[`reproduce_demo.ps1`](reproduce_demo.ps1). Edit the **3 paths at the top** and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File examples\reproduce_demo.ps1
+```
+
+**Exact prompt used (verbatim):**
+
+```text
+A cute American Shorthair silver tabby kitten surfs on a tropical ocean wave, riding a white surfboard with the clear text 'sd.cpp' on it. Cinematic tracking shot, realistic water, bright sunlight, smooth motion, and consistent character appearance. Add upbeat tropical surf-rock background music with cheerful drums and guitar, synchronized with the kitten's energetic surfing.
+```
+
+**Exact settings:** `-M vid_gen --cfg-scale 1.0 -W 864 -H 480 --video-frames 56 --fps 24`
+with `--backend "diffusion=cuda0,vae=cuda0,te=cpu" --params-backend "diffusion=cuda0,vae=cuda0,te=cpu"`.
+
+> To compare against another model, feed the **same prompt** and append a technical-spec line
+> (e.g. `Technical spec: 864x480, 56 frames, 24 fps, 2.33 s`).
+
 ## 1. Verify the CUDA backend sees the V100
 
 ```powershell
