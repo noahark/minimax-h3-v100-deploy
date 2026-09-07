@@ -1,0 +1,110 @@
+# MiniMax-H3 on Tesla V100 — Reproducible Deployment Recipe (stable-diffusion.cpp + GGUF)
+
+> Status: **✅ Verified end-to-end on a single Tesla V100-PCIE-32GB (Volta / sm_70).**
+> Actually produced: `864x480`, `56 frames`, `24 fps` video in **687 s** (audio decoded too).
+
+This is a **how-to / deployment recipe**, not a new model or framework. It packages the
+working path for running [MiniMax-H3](https://github.com/wildminder/awesome-minimax-H3)
+on an NVIDIA **V100 (sm_70)** — the card nobody can run ComfyUI H3 on.
+
+## Why this exists
+
+- ComfyUI 0.33.2 + comfy-kitchen + T8 + v100-patch **does NOT work** on V100
+  (`cudaErrorNotSupported` / OOM). We confirmed this ourselves.
+- V100 (Volta) has **no bf16 / fp8 / int8 tensor cores** — it only has fp16/fp32.
+- The working route is **stable-diffusion.cpp + GGUF** — sd.cpp natively supports H3,
+  and its quantized GGUF + `auto-fit` memory management fit the model on 32 GB.
+
+## The recipe (short)
+
+1. **Compile sd.cpp with CUDA for sm_70** (must build from source; prebuilt PTX breaks on V100).
+2. **Download 4 GGUF/safetensors** (diffusion model + text encoder + 2 VAEs).
+3. **Run with `--cfg-scale 1.0` and default `--auto-fit`** — do NOT use `--offload-to-cpu`.
+
+Full steps, exact commands, and gotchas are below / in `examples/run_command.md`.
+
+---
+
+## What worked (verified values)
+
+| Run | Result |
+|---|---|
+| 256×256×5 | **135 s** |
+| 864×480×56 (official demo spec) | **687 s** (audio decoded) |
+
+Memory layout (V100 32 GB): auto-fit put the **text encoder (18.8 GB) + diffusion (10.9 GB)
+= 29.8 GB on VRAM** and the **VAE (5.5 GB) on RAM** for small runs. For the big 864×480×56
+run we moved the encoder to RAM (`te=cpu`) to free VRAM for the diffusion activations.
+
+## The gotchas (the actual value of this repo)
+
+- ❌ **`--offload-to-cpu` is WRONG**: it moves *every* backend (including the diffusion
+  model) to CPU → extremely slow. This is the single biggest trap.
+- ✅ **Use default `--auto-fit`** (don't pass `--backend` / `--params-backend` for small runs).
+- ✅ **For large generations, use `--backend "diffusion=cuda0,vae=cuda0,te=cpu"` +
+  `--params-backend "diffusion=cuda0,vae=cuda0,te=cpu"`** — the one-time text encoder (18.8 GB)
+  goes to RAM so the diffusion activations fit in VRAM. Without this, 864×480×56 OOMs.
+- ✅ **`--cfg-scale 1.0` is mandatory** — the default 7.0 makes H3 abort immediately.
+- ✅ **`-DSD_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=70`** for V100. Build from source.
+- ✅ **CUDA bin (`...\CUDA\v12.4\bin`) must be on PATH** at runtime, else the exe fails with
+  error `0xC0000135` (DLL not found).
+- ✅ **`git clone --depth 1` does NOT pull submodules** — run `git submodule update --init --recursive`.
+
+## Prerequisites
+
+- NVIDIA **Tesla V100-PCIE-32GB** (sm_70), driver ≥ CUDA 12 compat.
+- Windows + **Visual Studio Build Tools** (MSVC), **CMake**, **CUDA Toolkit 12.x**, **ninja**.
+
+## Build (see `build_sdcpp.bat`)
+
+```bat
+cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DSD_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=70 ^
+      -DCMAKE_CUDA_COMPILER="<CUDA>/bin/nvcc.exe"
+cmake --build build -j 12
+```
+Output: `build/bin/sd-cli.exe` (and `sd-server.exe`).
+
+## Run (see `examples/run_command.md`)
+
+```powershell
+set PATH=<CUDA>\bin;%PATH%
+sd-cli.exe -M vid_gen --diffusion-model <main.gguf> --vae <video_vae> --audio-vae <audio_vae> ^
+  --llm <encoder.gguf> -p "<prompt>" --cfg-scale 1.0 -W 864 -H 480 --video-frames 56 --fps 24 -o out.webm
+```
+
+Verify the backend:
+```powershell
+sd-cli.exe --list-devices   # expect: CUDA0   Tesla V100-PCIE-32GB
+```
+
+## Model files
+
+| Role | File | Source |
+|---|---|---|
+| Diffusion transformer | `minimax_h3_fl2va_pruned-Q4_K_M.gguf` | [leejet/MiniMax-H3-GGUF](https://huggingface.co/leejet/MiniMax-H3-GGUF) |
+| Text encoder (Qwen3-VL-32B H3 variant) | `qwen3vl_32b_minimax_h3-Q4_K_M.gguf` | [leejet/MiniMax-H3-GGUF](https://huggingface.co/leejet/MiniMax-H3-GGUF) |
+| Video VAE | `minimax_h3_video_vae_fp16.safetensors` | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3) |
+| Audio VAE | `minimax_h3_audio_vae_fp32.safetensors` | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3) |
+
+> ⚠️ The text encoder must be the **MiniMax-H3 variant** (Qwen3-VL-32B truncated to
+> 50 layers, no final norm, with vision DeepStack). A generic Qwen2.5-VL will NOT work.
+
+## Duration / frame count
+
+- FPS is fixed at **24**. Frame count must be on the **`17k + 5`** grid (min 5):
+  `5, 22, 39, 56, 73, 90, 107, 124…`. Duration = `frames / 24`.
+
+## Credits & attribution
+
+- Runtime: [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) (MIT) —
+  native H3 support via [docs/minimax_h3.md](https://github.com/leejet/stable-diffusion.cpp/blob/master/docs/minimax_h3.md).
+- GGML sm_70/V100 compute support: ggml PR [#1062](https://github.com/leejet/stable-diffusion.cpp/pull/1062).
+- Model quants: [leejet/MiniMax-H3-GGUF](https://huggingface.co/leejet/MiniMax-H3-GGUF),
+  [unsloth/MiniMax-H3-GGUF](https://huggingface.co/unsloth/MiniMax-H3-GGUF).
+- VAEs: [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3).
+- Context: [awesome-minimax-H3](https://github.com/wildminder/awesome-minimax-H3),
+  smzdm《二手 V100 是最容易踩的坑》.
+
+## License
+
+[MIT](LICENSE) (this recipe/guide). The upstream projects and model weights have their own licenses.

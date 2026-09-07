@@ -1,0 +1,18 @@
+# build artifacts
+build/
+bin/
+*.obj
+*.o
+*.so
+
+# models are downloaded separately — don't commit them
+models/
+*.gguf
+*.safetensors
+
+# logs / local cruft
+*.log
+*.tmp
+*.dmp
+.DS_Store
+Thumbs.db
