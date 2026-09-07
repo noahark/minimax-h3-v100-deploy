@@ -105,6 +105,18 @@ sd-cli.exe --list-devices   # expect: CUDA0   Tesla V100-PCIE-32GB
 - Context: [awesome-minimax-H3](https://github.com/wildminder/awesome-minimax-H3),
   smzdm《二手 V100 是最容易踩的坑》.
 
+## Acknowledgments
+
+This project was built **collaboratively**: the human operator drove the goal and supplied
+the hardware (one Tesla V100-PCIE-32GB), while the technical execution — toolchain setup,
+compiling sd.cpp for sm_70, model download/moves, running and debugging the generation, and
+writing this deployment recipe — was carried out **primarily by the AI assistant
+[DeepSeek-V4-Flash-Vision-Exp]**, working turn-by-turn with the operator across a single
+session.
+
+Credit also goes to the open-source projects and model repositories listed above, without
+which none of this would run.
+
 ## License
 
 [MIT](LICENSE) (this recipe/guide). The upstream projects and model weights have their own licenses.
